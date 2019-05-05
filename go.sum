@@ -6,5 +6,4 @@ github.com/kisielk/errcheck v1.1.0/go.mod h1:EZBBE59ingxPouuu3KfxchcWSUPOHkagtvW
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/mwitkow/go-proto-validators v0.0.0-20190212092829-1f388280e944 h1:RY9I2vt95pyT12MKfJo1Ck3O+NPQqlukBahURwDtJBc=
 github.com/mwitkow/go-proto-validators v0.0.0-20190212092829-1f388280e944/go.mod h1:m2XC9Qq0AlmmVksL6FktJCdTYyLk7V3fKyp0sl1yWQo=
-github.com/sat0yu/protoc-gen-ruby-validators v0.0.0-20190505042441-9b108bd35a47 h1:MaGgJFqrycAyNhuZpGQ2KjRY36n23IKN4ksRf0LXyTY=
 golang.org/x/tools v0.0.0-20180221164845-07fd8470d635/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=

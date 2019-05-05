@@ -1,13 +1,15 @@
 package plugin
 
 import (
+    "bytes"
+    "fmt"
     "io"
     "io/ioutil"
     "os"
-    "strings"
 
-    "github.com/golang/protobuf/proto"
-    "github.com/golang/protobuf/protoc-gen-go/descriptor"
+    validator "github.com/mwitkow/go-proto-validators"
+    proto "github.com/golang/protobuf/proto"
+    descriptor "github.com/golang/protobuf/protoc-gen-go/descriptor"
     plugin "github.com/golang/protobuf/protoc-gen-go/plugin"
 )
 
@@ -30,17 +32,50 @@ func ProcessRequest(req *plugin.CodeGeneratorRequest) *plugin.CodeGeneratorRespo
         files[f.GetName()] = f
     }
 
-    var resp plugin.CodeGeneratorResponse
+    var buf bytes.Buffer
     for _, fname := range req.FileToGenerate {
         f := files[fname]
-        splitted := strings.Split(fname, ".proto")
-        out := splitted[0] + "_validators_pb.rb"
-        resp.File = append(resp.File, &plugin.CodeGeneratorResponse_File{
-            Name:    proto.String(out),
-            Content: proto.String(proto.MarshalTextString(f)),
-        })
+        for _, fieldName := range validatedFields(f) {
+            io.WriteString(&buf, fieldName)
+            io.WriteString(&buf, "\n")
+        }
     }
-    return &resp
+    return &plugin.CodeGeneratorResponse{
+        File: []*plugin.CodeGeneratorResponse_File{
+            {
+                Name:    proto.String("validatedFields.txt"),
+                Content: proto.String(buf.String()),
+            },
+        },
+    }
+}
+
+func validatedFields(file *descriptor.FileDescriptorProto) []string {
+    var names []string
+    for _, m := range file.MessageType {
+        for _, field := range m.Field {
+            fName, ok := isValidatedField(field)
+            if !ok { continue }
+            names = append(names, fmt.Sprintf("%s: %s", m.GetName(), fName))
+        }
+    }
+    return names
+}
+
+func isValidatedField(field *descriptor.FieldDescriptorProto) (string, bool) {
+    ext, err := proto.GetExtension(field.Options, &proto.ExtensionDesc{
+       // FIXME: ExtendedType does not have compatibility
+       // ExtendedType: validator.E_Field.ExtendedType,
+       ExtensionType: validator.E_Field.ExtensionType,
+       Field: validator.E_Field.Field,
+       Name: validator.E_Field.Name,
+       Tag: validator.E_Field.Tag,
+       Filename: validator.E_Field.Filename,
+    })
+    if err != nil { return "", false }
+    _, ok := ext.(*validator.FieldValidator)
+    if !ok { return "", false }
+    return field.GetName(), true
 }
 
 func EmitResponse(resp *plugin.CodeGeneratorResponse) error {

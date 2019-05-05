@@ -5,9 +5,6 @@ import (
     "os"
 
     . "github.com/sat0yu/protoc-gen-ruby-validators/plugin"
-
-    // download dependencies in ${GOPATH}/src
-    _ "github.com/mwitkow/go-proto-validators"
 )
 
 func run() error {

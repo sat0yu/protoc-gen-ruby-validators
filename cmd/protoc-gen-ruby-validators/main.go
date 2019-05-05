@@ -10,6 +10,9 @@ import (
     "github.com/golang/protobuf/proto"
     descriptor "github.com/golang/protobuf/protoc-gen-go/descriptor"
     plugin "github.com/golang/protobuf/protoc-gen-go/plugin"
+
+    // download dependencies in ${GOPATH}/src
+    _ "github.com/mwitkow/go-proto-validators"
 )
 
 func parseReq(r io.Reader) (*plugin.CodeGeneratorRequest, error) {

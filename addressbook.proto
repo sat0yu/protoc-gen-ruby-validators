@@ -11,6 +11,7 @@ syntax = "proto3";
 package tutorial;
 
 import "google/protobuf/timestamp.proto";
+import "github.com/mwitkow/go-proto-validators/validator.proto";
 // [END declaration]
 
 // [START java_declaration]
@@ -24,7 +25,7 @@ option csharp_namespace = "Google.Protobuf.Examples.AddressBook";
 
 // [START messages]
 message Person {
-  string name = 1;
+  string name = 1 [(validator.field) = {regex: "^[a-z]{2,5}$"}];
   int32 id = 2;  // Unique ID number for this person.
   string email = 3;
 

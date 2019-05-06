@@ -6,6 +6,7 @@ import (
     "io"
     "io/ioutil"
     "os"
+    "strings"
 
     validator "github.com/mwitkow/go-proto-validators"
     proto "github.com/golang/protobuf/proto"
@@ -35,10 +36,12 @@ func ProcessRequest(req *plugin.CodeGeneratorRequest) *plugin.CodeGeneratorRespo
     var buf bytes.Buffer
     for _, fname := range req.FileToGenerate {
         f := files[fname]
-        for _, fieldName := range validatedFields(f) {
-            io.WriteString(&buf, fieldName)
-            io.WriteString(&buf, "\n")
-        }
+        for _, m := range f.MessageType {
+            for _, fName := range getValidatedFields(m, &[]string{f.GetPackage()}) {
+                io.WriteString(&buf, fName)
+                io.WriteString(&buf, "\n")
+            }
+		}
     }
     return &plugin.CodeGeneratorResponse{
         File: []*plugin.CodeGeneratorResponse_File{
@@ -50,17 +53,22 @@ func ProcessRequest(req *plugin.CodeGeneratorRequest) *plugin.CodeGeneratorRespo
     }
 }
 
-func validatedFields(file *descriptor.FileDescriptorProto) []string {
+func getValidatedFields(m *descriptor.DescriptorProto, parents *[]string) []string {
     var names []string
-    for _, m := range file.MessageType {
-        for _, field := range m.Field {
-            fName, ok := isValidatedField(field)
-            if !ok { continue }
-            names = append(names, fmt.Sprintf("%s: %s", m.GetName(), fName))
-        }
+    current := append(*parents, m.GetName())
+    for _, field := range m.Field {
+        fName, ok := isValidatedField(field)
+        if !ok { continue }
+        path := strings.Join(current, "::")
+        n := fmt.Sprintf("%s#%s", path, fName)
+        names = append(names, n)
+    }
+    for _, nested := range m.NestedType {
+    	names = append(names, getValidatedFields(nested, &current)...)
     }
     return names
 }
+
 
 func isValidatedField(field *descriptor.FieldDescriptorProto) (string, bool) {
     ext, err := proto.GetExtension(field.Options, &proto.ExtensionDesc{

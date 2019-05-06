@@ -28,10 +28,23 @@ func ParseRequest(r io.Reader) (*plugin.CodeGeneratorRequest, error) {
 }
 
 type FieldValidation struct {
+    FieldValidator
     packages *[]string
     msgClasses *[]string
     field *descriptor.FieldDescriptorProto
-    validator *FieldValidator
+}
+
+func (fv *FieldValidation) generateMethod() string {
+    var buf bytes.Buffer
+    indent := generateIndent(len(*fv.parents()))
+
+    io.WriteString(&buf, fmt.Sprintf("%sdef validate_%s\n", indent, fv.GetFieldName()))
+
+    io.WriteString(&buf, fmt.Sprintf("%s\t%s\n", indent, fv.String()))
+
+    io.WriteString(&buf, fmt.Sprintf("%send\n", indent))
+
+    return buf.String()
 }
 
 func (fv *FieldValidation) path() string {
@@ -75,10 +88,10 @@ func getValidatedFields(m *descriptor.DescriptorProto, packages, msgClasses *[]s
         v, ok := getValidator(field)
         if !ok { continue }
         fields = append(fields, &FieldValidation{
+            FieldValidator: *v,
         	packages: packages,
         	msgClasses: &classes,
             field: field,
-            validator: v,
         })
     }
     for _, nested := range m.NestedType {
@@ -118,8 +131,7 @@ func GenerateResponse(fields []*FieldValidation) *plugin.CodeGeneratorResponse {
             io.WriteString(&buf, fmt.Sprintf("%sclass %s\n", indent, cls))
         }
         for _, fv := range fvList {
-            io.WriteString(&buf, fmt.Sprintf("def validate_%s\n", fv.GetFieldName()))
-            io.WriteString(&buf, fmt.Sprintf("end\n"))
+            io.WriteString(&buf, fv.generateMethod())
         }
         parents := *(fvList[0].parents())
         for idx := range parents {

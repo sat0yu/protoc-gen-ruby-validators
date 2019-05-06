@@ -28,12 +28,30 @@ func ParseRequest(r io.Reader) (*plugin.CodeGeneratorRequest, error) {
 }
 
 type FieldValidation struct {
-    path string
+    packages *[]string
+    msgClasses *[]string
     field *descriptor.FieldDescriptorProto
     validator *FieldValidator
 }
 
-func ProcessRequest(req *plugin.CodeGeneratorRequest) *[]*FieldValidation {
+func (fv *FieldValidation) path() string {
+    return strings.Join(append(*fv.packages, *fv.msgClasses...), "::")
+}
+
+func (fv *FieldValidation) parents() *[]string {
+    parents := append(*fv.packages, *fv.msgClasses...)
+    return &parents
+}
+
+func (fv *FieldValidation) GetFieldName() string {
+    return fv.field.GetName()
+}
+
+func generateIndent(width int) string {
+    return strings.Repeat("\t", width)
+}
+
+func ProcessRequest(req *plugin.CodeGeneratorRequest) []*FieldValidation {
     files := make(map[string]*descriptor.FileDescriptorProto)
     for _, f := range req.ProtoFile {
         files[f.GetName()] = f
@@ -43,29 +61,30 @@ func ProcessRequest(req *plugin.CodeGeneratorRequest) *[]*FieldValidation {
     for _, fname := range req.FileToGenerate {
         f := files[fname]
         for _, m := range f.MessageType {
-            fields = append(fields, *getValidatedFields(m, &[]string{f.GetPackage()})...)
+            pkgs := strings.Split(strings.Title(f.GetPackage()), ".")
+            fields = append(fields, getValidatedFields(m, &pkgs, &[]string{})...)
 		}
     }
-    return &fields
+    return fields
 }
 
-func getValidatedFields(m *descriptor.DescriptorProto, parents *[]string) *[]*FieldValidation {
+func getValidatedFields(m *descriptor.DescriptorProto, packages, msgClasses *[]string) []*FieldValidation {
     var fields []*FieldValidation
-    current := append(*parents, m.GetName())
+    classes := append(*msgClasses, strings.Title(m.GetName()))
     for _, field := range m.Field {
         v, ok := getValidator(field)
         if !ok { continue }
-        path := strings.Join(current, "::")
         fields = append(fields, &FieldValidation{
-            path: path,
+        	packages: packages,
+        	msgClasses: &classes,
             field: field,
             validator: v,
         })
     }
     for _, nested := range m.NestedType {
-        fields = append(fields, *getValidatedFields(nested, &current)...)
+        fields = append(fields, getValidatedFields(nested, packages, &classes)...)
     }
-    return &fields
+    return fields
 }
 
 func getValidator(field *descriptor.FieldDescriptorProto) (*FieldValidator, bool) {
@@ -84,10 +103,30 @@ func getValidator(field *descriptor.FieldDescriptorProto) (*FieldValidator, bool
     return v, true
 }
 
-func GenerateResponse(fields *[]*FieldValidation) *plugin.CodeGeneratorResponse {
+func GenerateResponse(fields []*FieldValidation) *plugin.CodeGeneratorResponse {
     var buf bytes.Buffer
-    for _, fv := range *fields {
-        io.WriteString(&buf, fmt.Sprintf("%s#%s => %s\n", fv.path, fv.field.GetName(), fv.validator.String()))
+    fieldsByPath := make(map[string][]*FieldValidation)
+    for _, fv := range fields {
+        fieldsByPath[fv.path()] = append(fieldsByPath[fv.path()], fv)
+    }
+    for _, fvList := range fieldsByPath {
+        for width, mod := range *(fvList[0].packages) {
+            io.WriteString(&buf, fmt.Sprintf("%smodule %s\n", generateIndent(width), mod))
+        }
+        for idx, cls := range *(fvList[0].msgClasses) {
+            indent := generateIndent(idx + len(*(fvList[0].packages)))
+            io.WriteString(&buf, fmt.Sprintf("%sclass %s\n", indent, cls))
+        }
+        for _, fv := range fvList {
+            io.WriteString(&buf, fmt.Sprintf("def validate_%s\n", fv.GetFieldName()))
+            io.WriteString(&buf, fmt.Sprintf("end\n"))
+        }
+        parents := *(fvList[0].parents())
+        for idx := range parents {
+            indent := generateIndent(len(parents) - idx - 1)
+            io.WriteString(&buf, fmt.Sprintf("%send\n", indent))
+        }
+        io.WriteString(&buf, "\n")
     }
 
     return &plugin.CodeGeneratorResponse{

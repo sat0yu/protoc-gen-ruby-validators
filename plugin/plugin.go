@@ -27,47 +27,45 @@ func ParseRequest(r io.Reader) (*plugin.CodeGeneratorRequest, error) {
     return &req, nil
 }
 
-func ProcessRequest(req *plugin.CodeGeneratorRequest) *map[string]*FieldValidator {
+type FieldValidation struct {
+    path string
+    field *descriptor.FieldDescriptorProto
+    validator *FieldValidator
+}
+
+func ProcessRequest(req *plugin.CodeGeneratorRequest) *[]*FieldValidation {
     files := make(map[string]*descriptor.FileDescriptorProto)
     for _, f := range req.ProtoFile {
         files[f.GetName()] = f
     }
 
-    fields := make(map[string]*FieldValidator)
+    var fields []*FieldValidation
     for _, fname := range req.FileToGenerate {
         f := files[fname]
         for _, m := range f.MessageType {
-            fields = merge(&fields, getValidatedFields(m, &[]string{f.GetPackage()}))
+            fields = append(fields, *getValidatedFields(m, &[]string{f.GetPackage()})...)
 		}
     }
     return &fields
 }
 
-func getValidatedFields(m *descriptor.DescriptorProto, parents *[]string) *map[string]*FieldValidator {
-    fields := make(map[string]*FieldValidator)
+func getValidatedFields(m *descriptor.DescriptorProto, parents *[]string) *[]*FieldValidation {
+    var fields []*FieldValidation
     current := append(*parents, m.GetName())
     for _, field := range m.Field {
         v, ok := getValidator(field)
         if !ok { continue }
         path := strings.Join(current, "::")
-        n := fmt.Sprintf("%s#%s", path, field.GetName())
-        fields[n] = v
+        fields = append(fields, &FieldValidation{
+            path: path,
+            field: field,
+            validator: v,
+        })
     }
     for _, nested := range m.NestedType {
-    	fields = merge(&fields, getValidatedFields(nested, &current))
+        fields = append(fields, *getValidatedFields(nested, &current)...)
     }
     return &fields
-}
-
-func merge(m1, m2 *map[string]*FieldValidator) map[string]*FieldValidator {
-    ans := map[string]*FieldValidator{}
-    for k, v := range *m1 {
-        ans[k] = v
-    }
-    for k, v := range *m2 {
-        ans[k] = v
-    }
-    return (ans)
 }
 
 func getValidator(field *descriptor.FieldDescriptorProto) (*FieldValidator, bool) {
@@ -86,10 +84,10 @@ func getValidator(field *descriptor.FieldDescriptorProto) (*FieldValidator, bool
     return v, true
 }
 
-func GenerateResponse(fields *map[string]*FieldValidator) *plugin.CodeGeneratorResponse {
+func GenerateResponse(fields *[]*FieldValidation) *plugin.CodeGeneratorResponse {
     var buf bytes.Buffer
-    for path, validator := range *fields {
-        io.WriteString(&buf, fmt.Sprintf("%s => %s\n", path, validator.String()))
+    for _, fv := range *fields {
+        io.WriteString(&buf, fmt.Sprintf("%s#%s => %s\n", fv.path, fv.field.GetName(), fv.validator.String()))
     }
 
     return &plugin.CodeGeneratorResponse{

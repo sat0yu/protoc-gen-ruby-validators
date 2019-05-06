@@ -8,7 +8,7 @@ import (
     "os"
     "strings"
 
-    validator "github.com/mwitkow/go-proto-validators"
+    . "github.com/mwitkow/go-proto-validators"
     proto "github.com/golang/protobuf/proto"
     descriptor "github.com/golang/protobuf/protoc-gen-go/descriptor"
     plugin "github.com/golang/protobuf/protoc-gen-go/plugin"
@@ -33,16 +33,19 @@ func ProcessRequest(req *plugin.CodeGeneratorRequest) *plugin.CodeGeneratorRespo
         files[f.GetName()] = f
     }
 
-    var buf bytes.Buffer
+    fields := make(map[string]*FieldValidator)
     for _, fname := range req.FileToGenerate {
         f := files[fname]
         for _, m := range f.MessageType {
-            for _, fName := range getValidatedFields(m, &[]string{f.GetPackage()}) {
-                io.WriteString(&buf, fName)
-                io.WriteString(&buf, "\n")
-            }
+            fields = merge(&fields, getValidatedFields(m, &[]string{f.GetPackage()}))
 		}
     }
+
+    var buf bytes.Buffer
+    for path, validator := range fields {
+        io.WriteString(&buf, fmt.Sprintf("%s => %s\n", path, validator.String()))
+    }
+
     return &plugin.CodeGeneratorResponse{
         File: []*plugin.CodeGeneratorResponse_File{
             {
@@ -53,37 +56,47 @@ func ProcessRequest(req *plugin.CodeGeneratorRequest) *plugin.CodeGeneratorRespo
     }
 }
 
-func getValidatedFields(m *descriptor.DescriptorProto, parents *[]string) []string {
-    var names []string
+func getValidatedFields(m *descriptor.DescriptorProto, parents *[]string) *map[string]*FieldValidator {
+    fields := make(map[string]*FieldValidator)
     current := append(*parents, m.GetName())
     for _, field := range m.Field {
-        fName, ok := isValidatedField(field)
+        v, ok := getValidator(field)
         if !ok { continue }
         path := strings.Join(current, "::")
-        n := fmt.Sprintf("%s#%s", path, fName)
-        names = append(names, n)
+        n := fmt.Sprintf("%s#%s", path, field.GetName())
+        fields[n] = v
     }
     for _, nested := range m.NestedType {
-    	names = append(names, getValidatedFields(nested, &current)...)
+    	fields = merge(&fields, getValidatedFields(nested, &current))
     }
-    return names
+    return &fields
 }
 
+func merge(m1, m2 *map[string]*FieldValidator) map[string]*FieldValidator {
+    ans := map[string]*FieldValidator{}
+    for k, v := range *m1 {
+        ans[k] = v
+    }
+    for k, v := range *m2 {
+        ans[k] = v
+    }
+    return (ans)
+}
 
-func isValidatedField(field *descriptor.FieldDescriptorProto) (string, bool) {
+func getValidator(field *descriptor.FieldDescriptorProto) (*FieldValidator, bool) {
     ext, err := proto.GetExtension(field.Options, &proto.ExtensionDesc{
        // FIXME: ExtendedType does not have compatibility
-       // ExtendedType: validator.E_Field.ExtendedType,
-       ExtensionType: validator.E_Field.ExtensionType,
-       Field: validator.E_Field.Field,
-       Name: validator.E_Field.Name,
-       Tag: validator.E_Field.Tag,
-       Filename: validator.E_Field.Filename,
+       // ExtendedType: E_Field.ExtendedType,
+       ExtensionType: E_Field.ExtensionType,
+       Field: E_Field.Field,
+       Name: E_Field.Name,
+       Tag: E_Field.Tag,
+       Filename: E_Field.Filename,
     })
-    if err != nil { return "", false }
-    _, ok := ext.(*validator.FieldValidator)
-    if !ok { return "", false }
-    return field.GetName(), true
+    if err != nil { return nil, false }
+    v, ok := ext.(*FieldValidator)
+    if !ok { return nil, false }
+    return v, true
 }
 
 func EmitResponse(resp *plugin.CodeGeneratorResponse) error {

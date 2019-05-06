@@ -13,7 +13,8 @@ func run() error {
         return err
     }
 
-    resp := ProcessRequest(req)
+    fields := ProcessRequest(req)
+    resp := GenerateResponse(fields)
 
     return EmitResponse(resp)
 }

@@ -27,7 +27,7 @@ func ParseRequest(r io.Reader) (*plugin.CodeGeneratorRequest, error) {
     return &req, nil
 }
 
-func ProcessRequest(req *plugin.CodeGeneratorRequest) *plugin.CodeGeneratorResponse {
+func ProcessRequest(req *plugin.CodeGeneratorRequest) *map[string]*FieldValidator {
     files := make(map[string]*descriptor.FileDescriptorProto)
     for _, f := range req.ProtoFile {
         files[f.GetName()] = f
@@ -40,20 +40,7 @@ func ProcessRequest(req *plugin.CodeGeneratorRequest) *plugin.CodeGeneratorRespo
             fields = merge(&fields, getValidatedFields(m, &[]string{f.GetPackage()}))
 		}
     }
-
-    var buf bytes.Buffer
-    for path, validator := range fields {
-        io.WriteString(&buf, fmt.Sprintf("%s => %s\n", path, validator.String()))
-    }
-
-    return &plugin.CodeGeneratorResponse{
-        File: []*plugin.CodeGeneratorResponse_File{
-            {
-                Name:    proto.String("validatedFields.txt"),
-                Content: proto.String(buf.String()),
-            },
-        },
-    }
+    return &fields
 }
 
 func getValidatedFields(m *descriptor.DescriptorProto, parents *[]string) *map[string]*FieldValidator {
@@ -97,6 +84,22 @@ func getValidator(field *descriptor.FieldDescriptorProto) (*FieldValidator, bool
     v, ok := ext.(*FieldValidator)
     if !ok { return nil, false }
     return v, true
+}
+
+func GenerateResponse(fields *map[string]*FieldValidator) *plugin.CodeGeneratorResponse {
+    var buf bytes.Buffer
+    for path, validator := range *fields {
+        io.WriteString(&buf, fmt.Sprintf("%s => %s\n", path, validator.String()))
+    }
+
+    return &plugin.CodeGeneratorResponse{
+        File: []*plugin.CodeGeneratorResponse_File{
+            {
+                Name:    proto.String("validatedFields.txt"),
+                Content: proto.String(buf.String()),
+            },
+        },
+    }
 }
 
 func EmitResponse(resp *plugin.CodeGeneratorResponse) error {

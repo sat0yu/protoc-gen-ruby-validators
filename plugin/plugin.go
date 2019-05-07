@@ -40,11 +40,72 @@ func (fv *FieldValidation) generateMethod() string {
 
     io.WriteString(&buf, fmt.Sprintf("%sdef validate_%s\n", indent, fv.GetFieldName()))
 
-    io.WriteString(&buf, fmt.Sprintf("%s\t%s\n", indent, fv.String()))
+    switch {
+    case fv.IsStringField():
+        fv.writeStringValidation(&buf)
+    case fv.IsIntegerField():
+        fv.writeIntegerValidation(&buf)
+    case fv.IsFloatField():
+        fv.writeFloatValidation(&buf)
+    default:
+        io.WriteString(&buf, fmt.Sprintf("%s\t# the vallidation (%s) is not supported yet\n", indent, fv.String()))
+    }
 
     io.WriteString(&buf, fmt.Sprintf("%send\n", indent))
 
     return buf.String()
+}
+
+func (fv *FieldValidation) IsStringField() bool {
+    return fv.field.GetType() == descriptor.FieldDescriptorProto_TYPE_STRING
+}
+
+func (fv *FieldValidation) IsBytesField() bool {
+    return fv.field.GetType() == descriptor.FieldDescriptorProto_TYPE_BYTES
+}
+
+func (fv *FieldValidation) IsIntegerField() bool {
+    switch fv.field.GetType() {
+    case descriptor.FieldDescriptorProto_TYPE_INT32, descriptor.FieldDescriptorProto_TYPE_INT64:
+        return true
+    case descriptor.FieldDescriptorProto_TYPE_UINT32, descriptor.FieldDescriptorProto_TYPE_UINT64:
+        return true
+    case descriptor.FieldDescriptorProto_TYPE_SINT32, descriptor.FieldDescriptorProto_TYPE_SINT64:
+        return true
+    }
+    return false
+}
+
+func (fv *FieldValidation) IsFloatField() bool {
+    switch fv.field.GetType() {
+    case descriptor.FieldDescriptorProto_TYPE_FLOAT, descriptor.FieldDescriptorProto_TYPE_DOUBLE:
+        return true
+    case descriptor.FieldDescriptorProto_TYPE_FIXED32, descriptor.FieldDescriptorProto_TYPE_FIXED64:
+        return true
+    case descriptor.FieldDescriptorProto_TYPE_SFIXED32, descriptor.FieldDescriptorProto_TYPE_SFIXED64:
+        return true
+    }
+    return false
+}
+
+func (fv *FieldValidation) writeStringValidation(buf *bytes.Buffer) {
+    indent := generateIndent(len(*fv.parents()))
+    io.WriteString(buf, fmt.Sprintf("%s\t# StringField: %s\n", indent, fv.GetFieldName()))
+}
+
+func (fv *FieldValidation) writeBytesValidation(buf *bytes.Buffer) {
+    indent := generateIndent(len(*fv.parents()))
+    io.WriteString(buf, fmt.Sprintf("%s\t# BytesField: %s\n", indent, fv.GetFieldName()))
+}
+
+func (fv *FieldValidation) writeIntegerValidation(buf *bytes.Buffer) {
+    indent := generateIndent(len(*fv.parents()))
+    io.WriteString(buf, fmt.Sprintf("%s\t# IntegerField: %s\n", indent, fv.GetFieldName()))
+}
+
+func (fv *FieldValidation) writeFloatValidation(buf *bytes.Buffer) {
+    indent := generateIndent(len(*fv.parents()))
+    io.WriteString(buf, fmt.Sprintf("%s\t# FloatField: %s\n", indent, fv.GetFieldName()))
 }
 
 func (fv *FieldValidation) path() string {
@@ -144,7 +205,7 @@ func GenerateResponse(fields []*FieldValidation) *plugin.CodeGeneratorResponse {
     return &plugin.CodeGeneratorResponse{
         File: []*plugin.CodeGeneratorResponse_File{
             {
-                Name:    proto.String("validatedFields.txt"),
+                Name:    proto.String("validatedFields.rb"),
                 Content: proto.String(buf.String()),
             },
         },

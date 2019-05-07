@@ -90,7 +90,12 @@ func (fv *FieldValidation) IsFloatField() bool {
 
 func (fv *FieldValidation) writeStringValidation(buf *bytes.Buffer) {
     indent := generateIndent(len(*fv.parents()))
-    io.WriteString(buf, fmt.Sprintf("%s\t# StringField: %s\n", indent, fv.GetFieldName()))
+    if fv.Regex != nil {
+        io.WriteString(buf, fmt.Sprintf("%s\traise InvalidError unless self.%s =~ /%s/\n", indent, fv.field.GetName(), fv.GetRegex()))
+    }
+    if fv.StringNotEmpty != nil && fv.GetStringNotEmpty() {
+        io.WriteString(buf, fmt.Sprintf("%s\traise InvalidError if self.%s.empty?\n", indent, fv.field.GetName()))
+    }
 }
 
 func (fv *FieldValidation) writeBytesValidation(buf *bytes.Buffer) {
@@ -179,6 +184,9 @@ func getValidator(field *descriptor.FieldDescriptorProto) (*FieldValidator, bool
 
 func GenerateResponse(fields []*FieldValidation) *plugin.CodeGeneratorResponse {
     var buf bytes.Buffer
+
+    io.WriteString(&buf, "class InvalidError < StandardError; end\n\n")
+
     fieldsByPath := make(map[string][]*FieldValidation)
     for _, fv := range fields {
         fieldsByPath[fv.path()] = append(fieldsByPath[fv.path()], fv)

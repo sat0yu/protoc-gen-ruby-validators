@@ -25,7 +25,7 @@ option csharp_namespace = "Google.Protobuf.Examples.AddressBook";
 
 // [START messages]
 message Person {
-  string name = 1 [(validator.field) = {regex: "^[a-z]{2,5}$"}];
+  string name = 1 [(validator.field) = {regex: "^[a-z]{2,5}$", string_not_empty: true}];
   int32 id = 2 [(validator.field) = {int_gt: 0, int_lt: 100}]; // Unique ID number for this person.
   string email = 3;
 

@@ -8,7 +8,6 @@ import (
     "os"
     "strings"
 
-    . "github.com/mwitkow/go-proto-validators"
     proto "github.com/golang/protobuf/proto"
     descriptor "github.com/golang/protobuf/protoc-gen-go/descriptor"
     plugin "github.com/golang/protobuf/protoc-gen-go/plugin"
@@ -28,89 +27,9 @@ func ParseRequest(r io.Reader) (*plugin.CodeGeneratorRequest, error) {
 }
 
 type FieldValidation struct {
-    FieldValidator
     packages *[]string
     msgClasses *[]string
     field *descriptor.FieldDescriptorProto
-}
-
-func (fv *FieldValidation) generateMethod() string {
-    var buf bytes.Buffer
-    indent := generateIndent(len(*fv.parents()))
-
-    io.WriteString(&buf, fmt.Sprintf("%sdef validate_%s\n", indent, fv.GetFieldName()))
-
-    switch {
-    case fv.IsStringField():
-        fv.writeStringValidation(&buf)
-    case fv.IsIntegerField():
-        fv.writeIntegerValidation(&buf)
-    case fv.IsFloatField():
-        fv.writeFloatValidation(&buf)
-    default:
-        io.WriteString(&buf, fmt.Sprintf("%s\t# the vallidation (%s) is not supported yet\n", indent, fv.String()))
-    }
-
-    io.WriteString(&buf, fmt.Sprintf("%send\n", indent))
-
-    return buf.String()
-}
-
-func (fv *FieldValidation) IsStringField() bool {
-    return fv.field.GetType() == descriptor.FieldDescriptorProto_TYPE_STRING
-}
-
-func (fv *FieldValidation) IsBytesField() bool {
-    return fv.field.GetType() == descriptor.FieldDescriptorProto_TYPE_BYTES
-}
-
-func (fv *FieldValidation) IsIntegerField() bool {
-    switch fv.field.GetType() {
-    case descriptor.FieldDescriptorProto_TYPE_INT32, descriptor.FieldDescriptorProto_TYPE_INT64:
-        return true
-    case descriptor.FieldDescriptorProto_TYPE_UINT32, descriptor.FieldDescriptorProto_TYPE_UINT64:
-        return true
-    case descriptor.FieldDescriptorProto_TYPE_SINT32, descriptor.FieldDescriptorProto_TYPE_SINT64:
-        return true
-    }
-    return false
-}
-
-func (fv *FieldValidation) IsFloatField() bool {
-    switch fv.field.GetType() {
-    case descriptor.FieldDescriptorProto_TYPE_FLOAT, descriptor.FieldDescriptorProto_TYPE_DOUBLE:
-        return true
-    case descriptor.FieldDescriptorProto_TYPE_FIXED32, descriptor.FieldDescriptorProto_TYPE_FIXED64:
-        return true
-    case descriptor.FieldDescriptorProto_TYPE_SFIXED32, descriptor.FieldDescriptorProto_TYPE_SFIXED64:
-        return true
-    }
-    return false
-}
-
-func (fv *FieldValidation) writeStringValidation(buf *bytes.Buffer) {
-    indent := generateIndent(len(*fv.parents()))
-    if fv.Regex != nil {
-        io.WriteString(buf, fmt.Sprintf("%s\traise InvalidError unless self.%s =~ /%s/\n", indent, fv.field.GetName(), fv.GetRegex()))
-    }
-    if fv.StringNotEmpty != nil && fv.GetStringNotEmpty() {
-        io.WriteString(buf, fmt.Sprintf("%s\traise InvalidError if self.%s.empty?\n", indent, fv.field.GetName()))
-    }
-}
-
-func (fv *FieldValidation) writeBytesValidation(buf *bytes.Buffer) {
-    indent := generateIndent(len(*fv.parents()))
-    io.WriteString(buf, fmt.Sprintf("%s\t# BytesField: %s\n", indent, fv.GetFieldName()))
-}
-
-func (fv *FieldValidation) writeIntegerValidation(buf *bytes.Buffer) {
-    indent := generateIndent(len(*fv.parents()))
-    io.WriteString(buf, fmt.Sprintf("%s\t# IntegerField: %s\n", indent, fv.GetFieldName()))
-}
-
-func (fv *FieldValidation) writeFloatValidation(buf *bytes.Buffer) {
-    indent := generateIndent(len(*fv.parents()))
-    io.WriteString(buf, fmt.Sprintf("%s\t# FloatField: %s\n", indent, fv.GetFieldName()))
 }
 
 func (fv *FieldValidation) path() string {
@@ -151,10 +70,7 @@ func getValidatedFields(m *descriptor.DescriptorProto, packages, msgClasses *[]s
     var fields []*FieldValidation
     classes := append(*msgClasses, strings.Title(m.GetName()))
     for _, field := range m.Field {
-        v, ok := getValidator(field)
-        if !ok { continue }
         fields = append(fields, &FieldValidation{
-            FieldValidator: *v,
         	packages: packages,
         	msgClasses: &classes,
             field: field,
@@ -166,26 +82,8 @@ func getValidatedFields(m *descriptor.DescriptorProto, packages, msgClasses *[]s
     return fields
 }
 
-func getValidator(field *descriptor.FieldDescriptorProto) (*FieldValidator, bool) {
-    ext, err := proto.GetExtension(field.Options, &proto.ExtensionDesc{
-       // FIXME: ExtendedType does not have compatibility
-       // ExtendedType: E_Field.ExtendedType,
-       ExtensionType: E_Field.ExtensionType,
-       Field: E_Field.Field,
-       Name: E_Field.Name,
-       Tag: E_Field.Tag,
-       Filename: E_Field.Filename,
-    })
-    if err != nil { return nil, false }
-    v, ok := ext.(*FieldValidator)
-    if !ok { return nil, false }
-    return v, true
-}
-
 func GenerateResponse(fields []*FieldValidation) *plugin.CodeGeneratorResponse {
     var buf bytes.Buffer
-
-    io.WriteString(&buf, "class InvalidError < StandardError; end\n\n")
 
     fieldsByPath := make(map[string][]*FieldValidation)
     for _, fv := range fields {
@@ -199,10 +97,22 @@ func GenerateResponse(fields []*FieldValidation) *plugin.CodeGeneratorResponse {
             indent := generateIndent(idx + len(*(fvList[0].packages)))
             io.WriteString(&buf, fmt.Sprintf("%sclass %s\n", indent, cls))
         }
+        var fNames []string
         for _, fv := range fvList {
-            io.WriteString(&buf, fv.generateMethod())
+            fNames = append(fNames, fv.GetFieldName())
         }
         parents := *(fvList[0].parents())
+        indent := generateIndent(len(parents))
+        lines := []string{
+            "def self.build(**kwargs)",
+            fmt.Sprintf("\tattributes = kwargs.select{|k, _| %%i(%s).include? k}", strings.Join(fNames, " ")),
+            "\tself.new(attributes)",
+            "end",
+        }
+        for _, line := range lines {
+            io.WriteString(&buf, fmt.Sprintf("%s%s\n", indent, line))
+        }
+        println()
         for idx := range parents {
             indent := generateIndent(len(parents) - idx - 1)
             io.WriteString(&buf, fmt.Sprintf("%send\n", indent))
